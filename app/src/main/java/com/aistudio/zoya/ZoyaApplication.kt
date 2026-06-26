@@ -29,12 +29,12 @@ class ZoyaApplication : Application() {
         audioInputManager = AudioInputManager()
         soundManager = SoundManager(this)
         
-        val sampleRate = 16000
+        val sampleRate = 24000
         val bufferSize = AudioTrack.getMinBufferSize(
             sampleRate,
             AudioFormat.CHANNEL_OUT_MONO,
             AudioFormat.ENCODING_PCM_16BIT
-        )
+        ) * 4
         audioTrack = AudioTrack.Builder()
             .setAudioAttributes(
                 AudioAttributes.Builder()

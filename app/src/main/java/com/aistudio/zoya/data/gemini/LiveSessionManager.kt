@@ -8,6 +8,12 @@ import com.aistudio.zoya.domain.model.AssistantState
 import com.aistudio.zoya.domain.model.Sentiment
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import okhttp3.*
 import org.json.JSONArray
 import org.json.JSONObject
@@ -17,6 +23,7 @@ class LiveSessionManager(
     private val toolEngine: ToolExecutionEngine
 ) : WebSocketListener() {
 
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var webSocket: WebSocket? = null
     private val _state = MutableStateFlow<AssistantState>(AssistantState.Idle)
     val state: StateFlow<AssistantState> = _state
@@ -24,8 +31,8 @@ class LiveSessionManager(
     private val _volume = MutableStateFlow(0f)
     val volume: StateFlow<Float> = _volume
 
-    private val _audioOutput = MutableStateFlow<ByteArray?>(null)
-    val audioOutput: StateFlow<ByteArray?> = _audioOutput
+    private val _audioOutput = MutableSharedFlow<ByteArray?>(extraBufferCapacity = 128)
+    val audioOutput: Flow<ByteArray?> = _audioOutput
 
     fun startSession() {
         if (webSocket != null) return
@@ -83,7 +90,10 @@ class LiveSessionManager(
         Log.d("LiveSessionManager", "WebSocket Open")
         val setup = JSONObject().apply {
             put("setup", JSONObject().apply {
-                put("model", "models/gemini-2.5-flash-native-audio-preview-12-2025")
+                put("model", "models/gemini-2.0-flash-exp")
+                put("generation_config", JSONObject().apply {
+                    put("response_modalities", JSONArray().apply { put("AUDIO") })
+                })
                 put("system_instruction", JSONObject().apply {
                     put("parts", JSONArray().apply {
                         put(JSONObject().apply {
@@ -148,7 +158,8 @@ class LiveSessionManager(
                     val part = parts.getJSONObject(i)
                     if (part.has("inline_data")) {
                         val inlineData = part.getJSONObject("inline_data")
-                        _audioOutput.value = Base64.decode(inlineData.getString("data"), Base64.DEFAULT)
+                        val data = Base64.decode(inlineData.getString("data"), Base64.DEFAULT)
+                        scope.launch { _audioOutput.emit(data) }
                         _state.value = AssistantState.Speaking(currentSentiment)
                     }
                     if (part.has("function_call")) {
@@ -158,7 +169,7 @@ class LiveSessionManager(
             }
             if (serverContent.has("turn_complete") && serverContent.getBoolean("turn_complete")) {
                 currentSentiment = Sentiment.Neutral
-                _audioOutput.value = null
+                scope.launch { _audioOutput.emit(null) }
                 _state.value = AssistantState.Listening
             }
         }

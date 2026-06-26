@@ -23,16 +23,6 @@ class AssistantViewModel(
         viewModelScope.launch {
             state.collect { newState ->
                 if (newState != lastState) {
-                    when (newState) {
-                        AssistantState.Listening -> soundManager.playActivationSound()
-                        AssistantState.Idle -> {
-                            if (lastState != AssistantState.Idle && lastState != AssistantState.Sleeping) {
-                                soundManager.playDeactivationSound()
-                            }
-                        }
-                        is AssistantState.Error -> soundManager.playErrorSound()
-                        else -> {}
-                    }
                     lastState = newState
                 }
             }

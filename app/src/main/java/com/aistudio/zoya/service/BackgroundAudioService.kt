@@ -94,18 +94,26 @@ class BackgroundAudioService : Service() {
                 if (audioData != null) {
                     liveSessionManager.setOutputVolume(audioData)
                     if (audioTrack.state == AudioTrack.STATE_INITIALIZED) {
-                        if (audioTrack.playState != AudioTrack.PLAYSTATE_PLAYING) {
-                            audioTrack.play()
+                        try {
+                            if (audioTrack.playState != AudioTrack.PLAYSTATE_PLAYING) {
+                                audioTrack.play()
+                            }
+                            val result = audioTrack.write(audioData, 0, audioData.size)
+                            if (result < 0) {
+                                Log.e("BackgroundAudioService", "Error writing audio: $result")
+                            }
+                        } catch (e: Exception) {
+                            Log.e("BackgroundAudioService", "Audio write exception: ${e.message}")
                         }
-                        audioTrack.write(audioData, 0, audioData.size)
                     }
                 } else {
-                    if (audioTrack.state == AudioTrack.STATE_INITIALIZED && 
-                        audioTrack.playState == AudioTrack.PLAYSTATE_PLAYING) {
-                        audioTrack.pause()
-                        audioTrack.flush()
-                    }
+                    Log.d("BackgroundAudioService", "Turn complete, flushing audio track")
                     liveSessionManager.setOutputVolume(byteArrayOf())
+                    // Small delay to let the remaining buffer play before flushing if needed,
+                    // but usually write() is enough if we don't stop.
+                    // If we want to be sure it stops immediately:
+                    // audioTrack.pause()
+                    // audioTrack.flush()
                 }
             }
         }
