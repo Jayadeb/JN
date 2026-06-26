@@ -1,0 +1,6 @@
+{
+  "name": "Zoya",
+  "description": "Zoya is a futuristic, voice-first native AI assistant with a charming personality and real-time conversational capabilities.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

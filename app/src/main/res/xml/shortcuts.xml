@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="ask_zoya"
+        android:enabled="true"
+        android:icon="@drawable/ic_zoya_notification"
+        android:shortcutShortLabel="@string/shortcut_ask_label"
+        android:shortcutLongLabel="@string/shortcut_ask_long_label">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.aistudio.zoya"
+            android:targetClass="com.aistudio.zoya.MainActivity">
+            <extra android:name="action" android:value="listen" />
+        </intent>
+        <categories android:name="android.shortcut.conversation" />
+    </shortcut>
+</shortcuts>
