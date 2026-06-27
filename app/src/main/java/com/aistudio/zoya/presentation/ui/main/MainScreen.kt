@@ -8,6 +8,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.*
@@ -167,6 +168,43 @@ fun MainScreen(viewModel: AssistantViewModel) {
 
                 Spacer(modifier = Modifier.height(64.dp))
 
+                var textInput by remember { mutableStateOf("") }
+                if (state == AssistantState.Idle) {
+                    OutlinedTextField(
+                        value = textInput,
+                        onValueChange = { textInput = it },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 32.dp),
+                        label = { Text("Talk to Zoya...", color = Color.White.copy(alpha = 0.5f)) },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = NeonBlue,
+                            unfocusedBorderColor = Color.White.copy(alpha = 0.3f),
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White
+                        ),
+                        singleLine = true,
+                        trailingIcon = {
+                            if (textInput.isNotEmpty()) {
+                                IconButton(onClick = {
+                                    viewModel.startListening()
+                                    // Give it a tiny bit of time to open WS before sending
+                                    // Actually, we should probably handle auto-start in sendText if closed
+                                    viewModel.sendText(textInput)
+                                    textInput = ""
+                                }) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.Send,
+                                        contentDescription = "Send",
+                                        tint = NeonBlue
+                                    )
+                                }
+                            }
+                        }
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+
                 Text(
                     text = when (state) {
                         AssistantState.Idle -> "I'm here for you."
@@ -252,6 +290,21 @@ fun MainScreen(viewModel: AssistantViewModel) {
                             IconButton(onClick = { viewModel.toggleTestingMode() }) {
                                 Icon(Icons.Default.Close, contentDescription = "Close Test", tint = Color.White)
                             }
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            val pitch by viewModel.pitch.collectAsState()
+                            Text("Pitch", color = Color.White, modifier = Modifier.width(80.dp))
+                            Slider(
+                                value = pitch,
+                                onValueChange = { viewModel.setPitch(it) },
+                                valueRange = 0.5f..2.0f,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text(String.format("%.1fx", pitch), color = Color.White, modifier = Modifier.width(40.dp))
                         }
                     }
                 }

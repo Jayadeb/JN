@@ -295,4 +295,25 @@ class ToolExecutionEngine(
             "Failed to get installed apps: ${e.message}"
         }
     }
+
+    fun getNetworkStatus(): String {
+        return try {
+            val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+            val network = connectivityManager.activeNetwork
+            val capabilities = connectivityManager.getNetworkCapabilities(network)
+            
+            if (capabilities == null) return "No active internet connection"
+            
+            val type = when {
+                capabilities.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) -> "Wi-Fi"
+                capabilities.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR) -> "Mobile Data"
+                capabilities.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET) -> "Ethernet"
+                else -> "Other"
+            }
+            
+            "Connected via $type"
+        } catch (e: Exception) {
+            "Failed to get network status: ${e.message}"
+        }
+    }
 }

@@ -1,11 +1,13 @@
 package com.aistudio.zoya.data.audio
 
+import android.content.Context
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.os.Build
 import android.util.Log
 
-class AudioInputManager {
+class AudioInputManager(private val context: Context) {
     private var audioRecord: AudioRecord? = null
     private var isRunning = false
     private val sampleRate = 16000
@@ -26,13 +28,34 @@ class AudioInputManager {
         onAudioDataListener = onAudioData
         onWakeWordDetectedListener = onWakeWordDetected
 
-        audioRecord = AudioRecord(
-            MediaRecorder.AudioSource.MIC,
-            sampleRate,
-            channelConfig,
-            audioFormat,
-            bufferSize
-        )
+        try {
+            audioRecord = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                AudioRecord.Builder()
+                    .setAudioSource(MediaRecorder.AudioSource.MIC)
+                    .setAudioFormat(
+                        AudioFormat.Builder()
+                            .setEncoding(audioFormat)
+                            .setSampleRate(sampleRate)
+                            .setChannelMask(channelConfig)
+                            .build()
+                    )
+                    .setBufferSizeInBytes(bufferSize)
+                    .setContext(context)
+                    .build()
+            } else {
+                AudioRecord(
+                    MediaRecorder.AudioSource.MIC,
+                    sampleRate,
+                    channelConfig,
+                    audioFormat,
+                    bufferSize
+                )
+            }
+        } catch (e: Exception) {
+            Log.e("AudioInputManager", "Failed to create AudioRecord: ${e.message}")
+            isRunning = false
+            return
+        }
 
         Thread {
             try {

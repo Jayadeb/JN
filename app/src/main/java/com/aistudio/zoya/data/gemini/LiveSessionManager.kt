@@ -31,6 +31,9 @@ class LiveSessionManager(
     private val _volume = MutableStateFlow(0f)
     val volume: StateFlow<Float> = _volume
 
+    private val _pitch = MutableStateFlow(1.0f)
+    val pitch: StateFlow<Float> = _pitch
+
     private val _audioOutput = MutableSharedFlow<ByteArray?>(extraBufferCapacity = 128)
     val audioOutput: Flow<ByteArray?> = _audioOutput
 
@@ -68,8 +71,31 @@ class LiveSessionManager(
         webSocket?.send(message.toString())
     }
 
+    fun sendText(text: String) {
+        val message = JSONObject().apply {
+            put("client_content", JSONObject().apply {
+                put("turns", JSONArray().apply {
+                    put(JSONObject().apply {
+                        put("role", "user")
+                        put("parts", JSONArray().apply {
+                            put(JSONObject().apply {
+                                put("text", text)
+                            })
+                        })
+                    })
+                })
+                put("turn_complete", true)
+            })
+        }
+        webSocket?.send(message.toString())
+    }
+
     fun setOutputVolume(audioData: ByteArray) {
         calculateVolume(audioData)
+    }
+
+    fun setPitch(pitch: Float) {
+        _pitch.value = pitch
     }
 
     private fun calculateVolume(audioData: ByteArray) {
@@ -120,6 +146,7 @@ class LiveSessionManager(
                             put(createToolJson("setBrightness", "Adjust screen brightness (0-255)", listOf("level" to "NUMBER")))
                             put(createToolJson("setVolume", "Adjust media volume (0-100 percent)", listOf("level" to "NUMBER")))
                             put(createToolJson("toggleDoNotDisturb", "Turn Do Not Disturb on or off", listOf("enable" to "BOOLEAN")))
+                            put(createToolJson("getNetworkStatus", "Check the current network connectivity status", emptyList()))
                         })
                     })
                 })
@@ -211,6 +238,7 @@ class LiveSessionManager(
             "setBrightness" -> toolEngine.setBrightness(args.getInt("level"))
             "setVolume" -> toolEngine.setVolume(args.getInt("level"))
             "toggleDoNotDisturb" -> toolEngine.toggleDoNotDisturb(args.getBoolean("enable"))
+            "getNetworkStatus" -> toolEngine.getNetworkStatus()
             else -> "Unknown tool: $name"
         }
 

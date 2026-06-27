@@ -37,19 +37,18 @@ class BackgroundAudioService : Service() {
 
         val app = application as ZoyaApplication
         liveSessionManager = app.liveSessionManager
-        audioInputManager = app.audioInputManager
+        
+        // Use attribution context if on Android 12+
+        val attributionContext = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            createAttributionContext("microphone")
+        } else {
+            this
+        }
+        
+        audioInputManager = AudioInputManager(attributionContext)
         audioTrack = app.audioTrack
         soundManager = app.soundManager
         
-        try {
-            val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
-            wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Zoya::WakeWordLock").apply {
-                acquire()
-            }
-        } catch (e: Exception) {
-            Log.e("BackgroundAudioService", "Failed to acquire wake lock: ${e.message}")
-        }
-
         val hasRecordPermission = androidx.core.content.ContextCompat.checkSelfPermission(
             this, android.Manifest.permission.RECORD_AUDIO
         ) == android.content.pm.PackageManager.PERMISSION_GRANTED
@@ -62,14 +61,17 @@ class BackgroundAudioService : Service() {
         var lastState: AssistantState = AssistantState.Idle
         serviceScope.launch {
             liveSessionManager.state.collect { state ->
-                if (state != lastState) {
+                val currentLastState = lastState
+                // Only update notification if the state type changed or if it's a new error
+                val stateChanged = when {
+                    state::class != currentLastState::class -> true
+                    state is AssistantState.Error && currentLastState is AssistantState.Error -> state.message != currentLastState.message
+                    else -> false
+                }
+
+                if (stateChanged) {
                     val message = when (state) {
-                        AssistantState.Idle -> {
-                            if (lastState != AssistantState.Idle && lastState != AssistantState.Sleeping) {
-                                soundManager.playDeactivationSound()
-                            }
-                            "Listening for 'Zoya'..."
-                        }
+                        AssistantState.Idle -> "Listening for 'Zoya'..."
                         AssistantState.Listening -> {
                             soundManager.playActivationSound()
                             "Zoya is listening..."
@@ -98,6 +100,14 @@ class BackgroundAudioService : Service() {
                             if (audioTrack.playState != AudioTrack.PLAYSTATE_PLAYING) {
                                 audioTrack.play()
                             }
+                            
+                            // Apply pitch
+                            val params = audioTrack.playbackParams
+                            if (params.pitch != liveSessionManager.pitch.value) {
+                                params.pitch = liveSessionManager.pitch.value
+                                audioTrack.playbackParams = params
+                            }
+
                             val result = audioTrack.write(audioData, 0, audioData.size)
                             if (result < 0) {
                                 Log.e("BackgroundAudioService", "Error writing audio: $result")
@@ -138,7 +148,14 @@ class BackgroundAudioService : Service() {
         }
     }
 
+    private var lastNotificationTime = 0L
+    private val NOTIFICATION_THROTTLE_MS = 1000L
+
     private fun updateNotification(message: String) {
+        val currentTime = System.currentTimeMillis()
+        if (currentTime - lastNotificationTime < NOTIFICATION_THROTTLE_MS) return
+        lastNotificationTime = currentTime
+        
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         notificationManager.notify(NOTIFICATION_ID, createNotification(message))
     }
@@ -179,9 +196,6 @@ class BackgroundAudioService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
-        wakeLock?.let {
-            if (it.isHeld) it.release()
-        }
         serviceScope.cancel()
         audioInputManager.stop()
         liveSessionManager.stopSession()

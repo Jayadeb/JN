@@ -26,7 +26,7 @@ class ZoyaApplication : Application() {
             .build()
         val toolEngine = ToolExecutionEngine(this)
         liveSessionManager = LiveSessionManager(client, toolEngine)
-        audioInputManager = AudioInputManager()
+        audioInputManager = AudioInputManager(this)
         soundManager = SoundManager(this)
         
         val sampleRate = 24000

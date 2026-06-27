@@ -16,6 +16,7 @@ class AssistantViewModel(
 
     val state: StateFlow<AssistantState> = liveSessionManager.state
     val volume: StateFlow<Float> = liveSessionManager.volume
+    val pitch: StateFlow<Float> = liveSessionManager.pitch
 
     private var lastState: AssistantState = AssistantState.Idle
 
@@ -50,6 +51,10 @@ class AssistantViewModel(
         _testVolume.value = newVolume
     }
 
+    fun setPitch(newPitch: Float) {
+        liveSessionManager.setPitch(newPitch)
+    }
+
     fun playTestSound() {
         soundManager.playActivationSound()
     }
@@ -60,5 +65,9 @@ class AssistantViewModel(
 
     fun stopListening() {
         liveSessionManager.stopSession()
+    }
+
+    fun sendText(text: String) {
+        liveSessionManager.sendText(text)
     }
 }
