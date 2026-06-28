@@ -18,9 +18,16 @@ class AudioInputManager(private val context: Context) {
     private var onAudioDataListener: ((ByteArray) -> Unit)? = null
     private var onWakeWordDetectedListener: (() -> Unit)? = null
 
-    // For wake word detection (simple energy threshold)
-    private val energyThreshold = 10000000.0
-    private val peakThreshold = 22000
+    // VAD and Wake detection parameters
+    private val energyThreshold = 500.0 // Adjusted for 16-bit PCM RMS
+    private val voiceHangoverMs = 1500L
+    private var lastVoiceTime = 0L
+    private var isVoiceDetected = false
+
+    // Wake word detection (simple energy + count pattern for 'Hey Zoya')
+    private var wakeTriggerCount = 0
+    private val wakeTriggerRequired = 3
+    private val wakeEnergyThreshold = 1500.0
 
     fun start(onAudioData: (ByteArray) -> Unit, onWakeWordDetected: () -> Unit) {
         if (isRunning) return
@@ -60,39 +67,69 @@ class AudioInputManager(private val context: Context) {
         Thread {
             try {
                 audioRecord?.startRecording()
-                val byteBuffer = ByteArray(bufferSize)
                 val shortBuffer = ShortArray(bufferSize / 2)
                 
                 while (isRunning) {
                     val read = audioRecord?.read(shortBuffer, 0, shortBuffer.size) ?: 0
                     if (read > 0) {
-                        // Process for wake word
-                        val energy = shortBuffer.take(read).map { it.toInt() * it.toInt() }.average()
-                        val peak = shortBuffer.take(read).maxOrNull() ?: 0
+                        val currentTime = System.currentTimeMillis()
                         
-                        if (peak > peakThreshold && energy > energyThreshold) {
-                            Log.d("AudioInputManager", "Wake word potential: Peak=$peak, Energy=$energy")
-                            onWakeWordDetectedListener?.invoke()
+                        // Calculate RMS energy for VAD
+                        var sum = 0.0
+                        for (i in 0 until read) {
+                            sum += shortBuffer[i].toInt() * shortBuffer[i].toInt()
+                        }
+                        val rms = Math.sqrt(sum / read)
+
+                        // 1. Wake word detection logic (only if not active)
+                        if (rms > wakeEnergyThreshold) {
+                            wakeTriggerCount++
+                            if (wakeTriggerCount >= wakeTriggerRequired) {
+                                Log.d("AudioInputManager", "Wake trigger detected (RMS: $rms)")
+                                onWakeWordDetectedListener?.invoke()
+                                wakeTriggerCount = 0
+                            }
+                        } else {
+                            if (wakeTriggerCount > 0) wakeTriggerCount--
                         }
 
-                        // Convert to ByteArray for streaming
-                        val byteArray = ByteArray(read * 2)
-                        for (i in 0 until read) {
-                            val s = shortBuffer[i].toInt()
-                            byteArray[i * 2] = (s and 0x00FF).toByte()
-                            byteArray[i * 2 + 1] = (s shr 8).toByte()
+                        // 2. VAD Logic
+                        if (rms > energyThreshold) {
+                            lastVoiceTime = currentTime
+                            isVoiceDetected = true
+                        } else {
+                            if (currentTime - lastVoiceTime > voiceHangoverMs) {
+                                isVoiceDetected = false
+                            }
                         }
-                        onAudioDataListener?.invoke(byteArray)
+
+                        // 3. Streaming Logic (only if voice is detected or hangover active)
+                        if (isVoiceDetected) {
+                            val byteArray = ByteArray(read * 2)
+                            for (i in 0 until read) {
+                                val s = shortBuffer[i].toInt()
+                                byteArray[i * 2] = (s and 0x00FF).toByte()
+                                byteArray[i * 2 + 1] = (s shr 8).toByte()
+                            }
+                            onAudioDataListener?.invoke(byteArray)
+                        }
                     }
                 }
             } catch (e: Exception) {
                 Log.e("AudioInputManager", "Error in audio loop: ${e.message}")
             } finally {
-                audioRecord?.stop()
+                try {
+                    audioRecord?.stop()
+                } catch (e: Exception) {
+                    Log.e("AudioInputManager", "Error stopping AudioRecord: ${e.message}")
+                }
                 audioRecord?.release()
                 audioRecord = null
             }
-        }.start()
+        }.apply {
+            name = "ZoyaAudioInputThread"
+            start()
+        }
     }
 
     fun stop() {

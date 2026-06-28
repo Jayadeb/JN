@@ -9,6 +9,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Phone
+import androidx.compose.material.icons.filled.Camera
+import androidx.compose.material.icons.filled.Folder
+import android.os.Build
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -26,11 +29,24 @@ import com.google.accompanist.permissions.rememberMultiplePermissionsState
 @Composable
 fun OnboardingScreen(onComplete: () -> Unit) {
     val permissionsState = rememberMultiplePermissionsState(
-        permissions = listOf(
+        permissions = listOfNotNull(
             Manifest.permission.RECORD_AUDIO,
             Manifest.permission.READ_CONTACTS,
             Manifest.permission.CALL_PHONE,
-            Manifest.permission.POST_NOTIFICATIONS
+            Manifest.permission.SEND_SMS,
+            Manifest.permission.CAMERA,
+            Manifest.permission.POST_NOTIFICATIONS,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                Manifest.permission.READ_MEDIA_IMAGES
+            } else {
+                Manifest.permission.READ_EXTERNAL_STORAGE
+            },
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                Manifest.permission.READ_MEDIA_VIDEO
+            } else null,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                Manifest.permission.READ_MEDIA_AUDIO
+            } else null
         )
     )
 
@@ -49,7 +65,7 @@ fun OnboardingScreen(onComplete: () -> Unit) {
             color = NeonBlue
         )
         Text(
-            text = "Your AI companion requires a few permissions to work her magic.",
+            text = "Your AI companion requires permissions to work effectively on your device.",
             style = MaterialTheme.typography.bodyLarge,
             color = Color.White.copy(alpha = 0.7f)
         )
@@ -58,18 +74,28 @@ fun OnboardingScreen(onComplete: () -> Unit) {
 
         PermissionItem(
             icon = Icons.Default.Mic,
-            title = "Microphone",
-            description = "To hear your voice and talk back in real-time."
+            title = "Voice & Audio",
+            description = "To hear you and speak back in real-time."
         )
         PermissionItem(
             icon = Icons.Default.Phone,
-            title = "Phone & Contacts",
-            description = "To call your friends and manage your reach."
+            title = "Communication",
+            description = "To call contacts, send SMS, and manage reach."
+        )
+        PermissionItem(
+            icon = Icons.Default.Camera,
+            title = "Device Controls",
+            description = "To use the flashlight and open the camera."
         )
         PermissionItem(
             icon = Icons.Default.Notifications,
-            title = "Notifications",
-            description = "To keep the connection alive in the background."
+            title = "Background Presence",
+            description = "To keep Zoya active even when the app is closed."
+        )
+        PermissionItem(
+            icon = Icons.Default.Folder,
+            title = "Files & Media",
+            description = "To access your gallery and media files."
         )
 
         Spacer(modifier = Modifier.weight(1f))

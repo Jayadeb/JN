@@ -3,4 +3,5 @@
     <string name="shortcut_ask_label">Ask Zoya</string>
     <string name="shortcut_ask_long_label">Start Zoya Assistant</string>
     <string name="mic_attribution">Zoya Microphone Access</string>
+    <string name="mic_tag">microphone</string>
 </resources>

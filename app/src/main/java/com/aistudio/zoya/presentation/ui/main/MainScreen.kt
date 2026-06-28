@@ -24,6 +24,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.material.icons.filled.Warning
+import android.content.Intent
+import android.net.Uri
 import com.aistudio.zoya.domain.model.AssistantState
 import com.aistudio.zoya.domain.model.Sentiment
 import com.aistudio.zoya.presentation.ui.components.ZoyaOrb
@@ -36,6 +39,11 @@ import com.aistudio.zoya.ui.theme.NeonPurple
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun MainScreen(viewModel: AssistantViewModel) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val powerManager = remember { context.getSystemService(android.content.Context.POWER_SERVICE) as android.os.PowerManager }
+    var isIgnoringBatteryOptimizations by remember { 
+        mutableStateOf(powerManager.isIgnoringBatteryOptimizations(context.packageName)) 
+    }
     val realState by viewModel.state.collectAsState()
     val realVolume by viewModel.volume.collectAsState()
     val testingMode by viewModel.testingMode.collectAsState()
@@ -83,6 +91,22 @@ fun MainScreen(viewModel: AssistantViewModel) {
                     label = { Text("AI Personality") },
                     selected = false,
                     onClick = { /* TODO */ },
+                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
+                    colors = NavigationDrawerItemDefaults.colors(
+                        unselectedContainerColor = Color.Transparent,
+                        unselectedTextColor = Color.White
+                    )
+                )
+                NavigationDrawerItem(
+                    label = { Text("Stop Zoya Assistant", color = NeonPink) },
+                    selected = false,
+                    onClick = {
+                        val stopIntent = Intent(context, com.aistudio.zoya.service.BackgroundAudioService::class.java).apply {
+                            action = "com.aistudio.zoya.STOP_SERVICE"
+                        }
+                        context.startService(stopIntent)
+                        scope.launch { drawerState.close() }
+                    },
                     modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
                     colors = NavigationDrawerItemDefaults.colors(
                         unselectedContainerColor = Color.Transparent,
@@ -146,6 +170,38 @@ fun MainScreen(viewModel: AssistantViewModel) {
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
+                if (!isIgnoringBatteryOptimizations) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp, vertical = 8.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color.Red.copy(alpha = 0.2f)),
+                        onClick = {
+                            try {
+                                val intent = Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+                                intent.data = Uri.parse("package:${context.packageName}")
+                                context.startActivity(intent)
+                            } catch (e: Exception) {
+                                val intent = Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                                context.startActivity(intent)
+                            }
+                        }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Warning, contentDescription = null, tint = Color.White)
+                            Spacer(Modifier.width(12.dp))
+                            Text(
+                                "Enable Background Stability",
+                                color = Color.White,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                    }
+                }
+
                 Text(
                     text = "ZOYA",
                     style = MaterialTheme.typography.displayLarge.copy(
@@ -207,7 +263,7 @@ fun MainScreen(viewModel: AssistantViewModel) {
 
                 Text(
                     text = when (state) {
-                        AssistantState.Idle -> "I'm here for you."
+                        AssistantState.Idle -> "Listening for 'Hey Zoya'..."
                         AssistantState.Listening -> "Listening..."
                         is AssistantState.Thinking -> "Thinking..."
                         is AssistantState.Speaking -> "Zoya is speaking"

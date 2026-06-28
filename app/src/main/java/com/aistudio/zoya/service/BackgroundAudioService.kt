@@ -17,6 +17,8 @@ import com.aistudio.zoya.data.gemini.LiveSessionManager
 import com.aistudio.zoya.domain.model.AssistantState
 import com.aistudio.zoya.util.SoundManager
 import kotlinx.coroutines.*
+import androidx.work.*
+import java.util.concurrent.TimeUnit
 
 class BackgroundAudioService : Service() {
 
@@ -29,14 +31,27 @@ class BackgroundAudioService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val CHANNEL_ID = "ZoyaAssistantChannel"
     private val NOTIFICATION_ID = 1
+    private val ACTION_STOP = "com.aistudio.zoya.STOP_SERVICE"
+    private var isManualStop = false
 
     override fun onCreate() {
         super.onCreate()
+        isManualStop = false
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, createNotification("Starting Zoya..."))
 
         val app = application as ZoyaApplication
         liveSessionManager = app.liveSessionManager
+        
+        // Acquire WakeLock to prevent the service from being killed or paused
+        try {
+            val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+            wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Zoya::AssistantWakeLock").apply {
+                acquire(10 * 60 * 1000L /*10 minutes fallback*/)
+            }
+        } catch (e: Exception) {
+            Log.e("BackgroundAudioService", "Failed to acquire wake lock: ${e.message}")
+        }
         
         // Use attribution context if on Android 12+
         val attributionContext = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -44,7 +59,7 @@ class BackgroundAudioService : Service() {
         } else {
             this
         }
-        
+
         audioInputManager = AudioInputManager(attributionContext)
         audioTrack = app.audioTrack
         soundManager = app.soundManager
@@ -82,7 +97,7 @@ class BackgroundAudioService : Service() {
                         AssistantState.Offline -> "Zoya is offline."
                         is AssistantState.Error -> {
                             soundManager.playErrorSound()
-                            "Zoya encountered an error."
+                            "Error: ${state.message}"
                         }
                     }
                     updateNotification(message)
@@ -119,37 +134,50 @@ class BackgroundAudioService : Service() {
                 } else {
                     Log.d("BackgroundAudioService", "Turn complete, flushing audio track")
                     liveSessionManager.setOutputVolume(byteArrayOf())
-                    // Small delay to let the remaining buffer play before flushing if needed,
-                    // but usually write() is enough if we don't stop.
-                    // If we want to be sure it stops immediately:
-                    // audioTrack.pause()
-                    // audioTrack.flush()
+                    try {
+                        audioTrack.pause()
+                        audioTrack.flush()
+                    } catch (e: Exception) {
+                        Log.e("BackgroundAudioService", "Error flushing audio track: ${e.message}")
+                    }
                 }
             }
         }
 
         try {
-            audioInputManager.start(
-                onAudioData = { audioData ->
-                    if (liveSessionManager.state.value is AssistantState.Listening || 
-                        liveSessionManager.state.value is AssistantState.Speaking) {
-                        liveSessionManager.sendAudio(audioData)
-                    }
-                },
-                onWakeWordDetected = {
-                    if (liveSessionManager.state.value == AssistantState.Idle) {
-                        liveSessionManager.startSession()
-                    }
-                }
-            )
+            startAudioInput()
         } catch (e: Exception) {
             Log.e("BackgroundAudioService", "Failed to start audio components: ${e.message}")
-            updateNotification("Error starting microphone.")
+            updateNotification("Error starting microphone. Retrying...")
+            serviceScope.launch {
+                delay(5000)
+                try {
+                    startAudioInput()
+                } catch (e2: Exception) {
+                    updateNotification("Mic failed. Check permissions.")
+                }
+            }
         }
     }
 
+    private fun startAudioInput() {
+        audioInputManager.start(
+            onAudioData = { audioData ->
+                if (liveSessionManager.state.value is AssistantState.Listening || 
+                    liveSessionManager.state.value is AssistantState.Speaking) {
+                    liveSessionManager.sendAudio(audioData)
+                }
+            },
+            onWakeWordDetected = {
+                if (liveSessionManager.state.value == AssistantState.Idle) {
+                    liveSessionManager.startSession()
+                }
+            }
+        )
+    }
+
     private var lastNotificationTime = 0L
-    private val NOTIFICATION_THROTTLE_MS = 1000L
+    private val NOTIFICATION_THROTTLE_MS = 2000L
 
     private fun updateNotification(message: String) {
         val currentTime = System.currentTimeMillis()
@@ -167,12 +195,21 @@ class BackgroundAudioService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
+        val stopIntent = Intent(this, BackgroundAudioService::class.java).apply {
+            action = ACTION_STOP
+        }
+        val stopPendingIntent = PendingIntent.getService(
+            this, 1, stopIntent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Zoya Assistant")
             .setContentText(message)
             .setSmallIcon(R.drawable.ic_zoya_notification)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
+            .addAction(0, "Stop", stopPendingIntent)
             .build()
     }
 
@@ -189,6 +226,11 @@ class BackgroundAudioService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_STOP) {
+            isManualStop = true
+            stopSelf()
+            return START_NOT_STICKY
+        }
         return START_STICKY
     }
 
@@ -196,10 +238,21 @@ class BackgroundAudioService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        wakeLock?.let {
+            if (it.isHeld) it.release()
+        }
         serviceScope.cancel()
         audioInputManager.stop()
         liveSessionManager.stopSession()
         audioTrack.stop()
         audioTrack.release()
+
+        if (!isManualStop) {
+            Log.d("BackgroundAudioService", "Service destroyed unexpectedly, scheduling restart.")
+            val workRequest = OneTimeWorkRequestBuilder<ServiceRestartWorker>()
+                .setInitialDelay(5, TimeUnit.SECONDS)
+                .build()
+            androidx.work.WorkManager.getInstance(this).enqueue(workRequest)
+        }
     }
 }

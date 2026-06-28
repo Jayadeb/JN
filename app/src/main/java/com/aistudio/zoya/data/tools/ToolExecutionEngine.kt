@@ -22,6 +22,7 @@ class ToolExecutionEngine(
                 "App not found: $packageName"
             }
         } catch (e: Exception) {
+            Log.e("ToolExecutionEngine", "Failed to open app: ${e.message}", e)
             "Failed to open app: ${e.message}"
         }
     }
@@ -60,6 +61,7 @@ class ToolExecutionEngine(
                 "Could not find an app named '$appName'"
             }
         } catch (e: Exception) {
+            Log.e("ToolExecutionEngine", "Failed to launch app: ${e.message}", e)
             "Failed to launch app: ${e.message}"
         }
     }
@@ -87,6 +89,7 @@ class ToolExecutionEngine(
                 "Contact not found: $contactName"
             }
         } catch (e: Exception) {
+            Log.e("ToolExecutionEngine", "Failed to call contact: ${e.message}", e)
             "Failed to call contact: ${e.message}. Do you have CALL_PHONE permission?"
         }
     }
@@ -194,7 +197,8 @@ class ToolExecutionEngine(
                 "Wi-Fi ${if (enable) "enabled" else "disabled"}"
             }
         } catch (e: Exception) {
-            "Failed to toggle Wi-Fi: ${e.message}"
+            Log.e("ToolExecutionEngine", "Failed to toggle WiFi: ${e.message}", e)
+            "Failed to toggle WiFi: ${e.message}"
         }
     }
 
@@ -205,23 +209,129 @@ class ToolExecutionEngine(
             
             if (enable) {
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-                    // Requires user permission check in activity, for now opening settings as fallback
+                    // On Android 12+, we usually need BLUETOOTH_CONNECT. 
+                    // Even then, direct enable() is deprecated.
                     val intent = Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS)
                     intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     context.startActivity(intent)
-                    "Opening Bluetooth settings"
+                    "Opening Bluetooth settings to enable"
                 } else {
                     @Suppress("DEPRECATION")
                     bluetoothAdapter.enable()
                     "Bluetooth enabled"
                 }
             } else {
-                @Suppress("DEPRECATION")
-                bluetoothAdapter.disable()
-                "Bluetooth disabled"
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                    val intent = Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS)
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    context.startActivity(intent)
+                    "Opening Bluetooth settings to disable"
+                } else {
+                    @Suppress("DEPRECATION")
+                    bluetoothAdapter.disable()
+                    "Bluetooth disabled"
+                }
             }
         } catch (e: Exception) {
+            Log.e("ToolExecutionEngine", "Failed to toggle Bluetooth: ${e.message}", e)
             "Failed to toggle Bluetooth: ${e.message}"
+        }
+    }
+
+    fun toggleFlashlight(enable: Boolean): String {
+        return try {
+            val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as android.hardware.camera2.CameraManager
+            val cameraId = cameraManager.cameraIdList[0]
+            cameraManager.setTorchMode(cameraId, enable)
+            "Flashlight turned ${if (enable) "on" else "off"}"
+        } catch (e: Exception) {
+            Log.e("ToolExecutionEngine", "Failed to toggle flashlight: ${e.message}", e)
+            "Failed to toggle flashlight: ${e.message}"
+        }
+    }
+
+    fun goHome(): String {
+        return try {
+            val intent = Intent(Intent.ACTION_MAIN)
+            intent.addCategory(Intent.CATEGORY_HOME)
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(intent)
+            "Going to home screen"
+        } catch (e: Exception) {
+            Log.e("ToolExecutionEngine", "Failed to go home: ${e.message}", e)
+            "Failed to go home: ${e.message}"
+        }
+    }
+
+    fun openNotifications(): String {
+        return try {
+            val statusBarService = context.getSystemService("statusbar")
+            val statusBarManager = Class.forName("android.app.StatusBarManager")
+            val expandMethod = statusBarManager.getMethod("expandNotificationsPanel")
+            expandMethod.invoke(statusBarService)
+            "Opening notifications"
+        } catch (e: Exception) {
+            // Fallback: Open notification settings
+            val intent = Intent(android.provider.Settings.ACTION_SETTINGS)
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(intent)
+            "Opening settings"
+        }
+    }
+
+    fun openGallery(): String {
+        return try {
+            val intent = Intent(Intent.ACTION_VIEW)
+            intent.type = "image/*"
+            intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            context.startActivity(intent)
+            "Opening gallery"
+        } catch (e: Exception) {
+            "Failed to open gallery: ${e.message}"
+        }
+    }
+
+    fun openBrowser(): String {
+        return try {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com"))
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(intent)
+            "Opening browser"
+        } catch (e: Exception) {
+            "Failed to open browser: ${e.message}"
+        }
+    }
+
+    fun sendSms(phoneNumber: String, message: String): String {
+        return try {
+            val smsManager = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                context.getSystemService(android.telephony.SmsManager::class.java)
+            } else {
+                @Suppress("DEPRECATION")
+                android.telephony.SmsManager.getDefault()
+            }
+            smsManager.sendTextMessage(phoneNumber, null, message, null, null)
+            "SMS sent to $phoneNumber"
+        } catch (e: Exception) {
+            Log.e("ToolExecutionEngine", "Failed to send SMS: ${e.message}", e)
+            "Failed to send SMS: ${e.message}. Do you have SEND_SMS permission?"
+        }
+    }
+
+    fun requestIgnoreBatteryOptimizations(): String {
+        return try {
+            val powerManager = context.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+            if (powerManager.isIgnoringBatteryOptimizations(context.packageName)) {
+                "Battery optimizations already ignored"
+            } else {
+                val intent = Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+                intent.data = Uri.parse("package:${context.packageName}")
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(intent)
+                "Requesting battery optimization exemption"
+            }
+        } catch (e: Exception) {
+            "Failed to request battery optimization: ${e.message}"
         }
     }
 

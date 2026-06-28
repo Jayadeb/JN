@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import okhttp3.*
 import org.json.JSONArray
@@ -37,8 +38,24 @@ class LiveSessionManager(
     private val _audioOutput = MutableSharedFlow<ByteArray?>(extraBufferCapacity = 128)
     val audioOutput: Flow<ByteArray?> = _audioOutput
 
+    private var lastActivityTime = System.currentTimeMillis()
+    private val SESSION_TIMEOUT_MS = 60000L // 1 minute of silence to return to wake-word mode
+
+    init {
+        scope.launch {
+            while (true) {
+                delay(10000)
+                if (webSocket != null && System.currentTimeMillis() - lastActivityTime > SESSION_TIMEOUT_MS) {
+                    Log.d("LiveSessionManager", "Session timed out due to inactivity")
+                    stopSession()
+                }
+            }
+        }
+    }
+
     fun startSession() {
         if (webSocket != null) return
+        lastActivityTime = System.currentTimeMillis()
 
         val request = Request.Builder()
             .url("wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${BuildConfig.GEMINI_API_KEY}")
@@ -53,9 +70,11 @@ class LiveSessionManager(
         webSocket = null
         currentSentiment = Sentiment.Neutral
         _state.value = AssistantState.Idle
+        scope.launch { _audioOutput.emit(null) }
     }
 
     fun sendAudio(audioData: ByteArray) {
+        lastActivityTime = System.currentTimeMillis()
         // Calculate volume for user input
         calculateVolume(audioData)
         val message = JSONObject().apply {
@@ -72,6 +91,7 @@ class LiveSessionManager(
     }
 
     fun sendText(text: String) {
+        lastActivityTime = System.currentTimeMillis()
         val message = JSONObject().apply {
             put("client_content", JSONObject().apply {
                 put("turns", JSONArray().apply {
@@ -123,7 +143,7 @@ class LiveSessionManager(
                 put("system_instruction", JSONObject().apply {
                     put("parts", JSONArray().apply {
                         put(JSONObject().apply {
-                            put("text", "You are Zoya, a helpful assistant. You can express emotions visually by calling the 'updateSentiment' tool. Call it whenever your tone or mood changes (Happy, Sad, Angry, Excited, or Neutral).")
+                            put("text", "You are Zoya, a helpful assistant. You can express emotions visually by calling the 'updateSentiment' tool. Call it whenever your tone or mood changes (Happy, Sad, Angry, Excited, or Neutral). You can also stop the current session if the user asks you to stop or says goodbye by calling 'stopAssistant'.")
                         })
                     })
                 })
@@ -147,6 +167,14 @@ class LiveSessionManager(
                             put(createToolJson("setVolume", "Adjust media volume (0-100 percent)", listOf("level" to "NUMBER")))
                             put(createToolJson("toggleDoNotDisturb", "Turn Do Not Disturb on or off", listOf("enable" to "BOOLEAN")))
                             put(createToolJson("getNetworkStatus", "Check the current network connectivity status", emptyList()))
+                            put(createToolJson("toggleFlashlight", "Turn the flashlight on or off", listOf("enable" to "BOOLEAN")))
+                            put(createToolJson("goHome", "Go back to the home screen", emptyList()))
+                            put(createToolJson("openNotifications", "Open the notification panel", emptyList()))
+                            put(createToolJson("openGallery", "Open the image gallery", emptyList()))
+                            put(createToolJson("openBrowser", "Open the web browser", emptyList()))
+                            put(createToolJson("sendSms", "Send an SMS message to a phone number", listOf("phoneNumber" to "STRING", "message" to "STRING")))
+                            put(createToolJson("requestIgnoreBatteryOptimizations", "Request the user to allow the app to run without battery restrictions", emptyList()))
+                            put(createToolJson("stopAssistant", "Stop the current session and stop Zoya from speaking or listening", emptyList()))
                         })
                     })
                 })
@@ -175,6 +203,7 @@ class LiveSessionManager(
     }
 
     override fun onMessage(webSocket: WebSocket, text: String) {
+        lastActivityTime = System.currentTimeMillis()
         val json = JSONObject(text)
         if (json.has("server_content")) {
             val serverContent = json.getJSONObject("server_content")
@@ -239,6 +268,17 @@ class LiveSessionManager(
             "setVolume" -> toolEngine.setVolume(args.getInt("level"))
             "toggleDoNotDisturb" -> toolEngine.toggleDoNotDisturb(args.getBoolean("enable"))
             "getNetworkStatus" -> toolEngine.getNetworkStatus()
+            "toggleFlashlight" -> toolEngine.toggleFlashlight(args.getBoolean("enable"))
+            "goHome" -> toolEngine.goHome()
+            "openNotifications" -> toolEngine.openNotifications()
+            "openGallery" -> toolEngine.openGallery()
+            "openBrowser" -> toolEngine.openBrowser()
+            "sendSms" -> toolEngine.sendSms(args.getString("phoneNumber"), args.getString("message"))
+            "requestIgnoreBatteryOptimizations" -> toolEngine.requestIgnoreBatteryOptimizations()
+            "stopAssistant" -> {
+                stopSession()
+                "Assistant stopped"
+            }
             else -> "Unknown tool: $name"
         }
 

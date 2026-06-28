@@ -10,6 +10,8 @@ import com.aistudio.zoya.data.tools.ToolExecutionEngine
 import com.aistudio.zoya.util.SoundManager
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
+import androidx.work.*
+import com.aistudio.zoya.service.ServiceRestartWorker
 
 class ZoyaApplication : Application() {
     lateinit var liveSessionManager: LiveSessionManager
@@ -19,6 +21,9 @@ class ZoyaApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        
+        setupPeriodicRestart()
+        
         val client = OkHttpClient.Builder()
             .connectTimeout(60, TimeUnit.SECONDS)
             .readTimeout(60, TimeUnit.SECONDS)
@@ -26,7 +31,6 @@ class ZoyaApplication : Application() {
             .build()
         val toolEngine = ToolExecutionEngine(this)
         liveSessionManager = LiveSessionManager(client, toolEngine)
-        audioInputManager = AudioInputManager(this)
         soundManager = SoundManager(this)
         
         val sampleRate = 24000
@@ -52,5 +56,17 @@ class ZoyaApplication : Application() {
             .setBufferSizeInBytes(bufferSize)
             .setTransferMode(AudioTrack.MODE_STREAM)
             .build()
+    }
+
+    private fun setupPeriodicRestart() {
+        val workRequest = PeriodicWorkRequestBuilder<ServiceRestartWorker>(
+            15, TimeUnit.MINUTES // Minimum interval allowed by Android
+        ).build()
+
+        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+            "ServiceRestartWork",
+            ExistingPeriodicWorkPolicy.KEEP, // Keep existing work if it exists
+            workRequest
+        )
     }
 }
